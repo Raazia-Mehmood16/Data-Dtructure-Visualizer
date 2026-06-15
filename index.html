@@ -1,0 +1,1002 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>DS Visualizer — WASM Edition</title>
+<style>
+  :root {
+    --bg:       #0a0e1a;
+    --panel:    #111827;
+    --card:     #1a2235;
+    --border:   #1e2d45;
+    --accent1:  #00d4ff;
+    --accent2:  #7c3aed;
+    --accent3:  #10b981;
+    --accent4:  #f59e0b;
+    --danger:   #ef4444;
+    --text:     #e2e8f0;
+    --muted:    #64748b;
+    --font:     'Segoe UI', system-ui, sans-serif;
+    --mono:     'Cascadia Code', 'Fira Code', monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:100vh;overflow-x:hidden}
+
+  /* ── TOP NAV ── */
+  header{
+    position:sticky;top:0;z-index:100;
+    background:rgba(10,14,26,0.95);
+    backdrop-filter:blur(12px);
+    border-bottom:1px solid var(--border);
+    padding:0 1.5rem;
+    display:flex;align-items:center;gap:1rem;height:56px;
+  }
+  .logo{font-size:1.1rem;font-weight:700;letter-spacing:-0.5px;white-space:nowrap}
+  .logo span{color:var(--accent1)}
+  .nav-tabs{display:flex;gap:2px;flex:1;overflow-x:auto;scrollbar-width:none}
+  .nav-tabs::-webkit-scrollbar{display:none}
+  .tab-btn{
+    padding:6px 16px;border:none;border-radius:6px;cursor:pointer;font-size:0.85rem;
+    font-weight:600;letter-spacing:0.3px;white-space:nowrap;transition:all .2s;
+    background:transparent;color:var(--muted);
+  }
+  .tab-btn:hover{background:var(--card);color:var(--text)}
+  .tab-btn.active{background:var(--accent2);color:#fff}
+  .wasm-badge{
+    font-size:0.7rem;padding:2px 8px;border-radius:20px;font-weight:700;letter-spacing:0.5px;
+    border:1px solid var(--accent1);color:var(--accent1);white-space:nowrap;
+  }
+
+  /* ── LAYOUT ── */
+  .main-layout{display:grid;grid-template-columns:280px 1fr;min-height:calc(100vh - 56px);gap:0}
+  .sidebar{
+    background:var(--panel);border-right:1px solid var(--border);
+    padding:1.25rem;display:flex;flex-direction:column;gap:1rem;
+    position:sticky;top:56px;height:calc(100vh - 56px);overflow-y:auto;
+  }
+  .content{padding:1.25rem;display:flex;flex-direction:column;gap:1rem;overflow-y:auto}
+
+  /* ── PANELS ── */
+  .ds-panel{display:none}
+  .ds-panel.active{display:flex;flex-direction:column;gap:1rem;height:100%}
+
+  /* ── CONTROLS ── */
+  .ctrl-group{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:1rem}
+  .ctrl-group h3{font-size:0.78rem;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-bottom:.75rem}
+  .ctrl-row{display:flex;gap:.5rem;flex-wrap:wrap;margin-bottom:.5rem}
+  .ctrl-row:last-child{margin-bottom:0}
+  input[type=number],input[type=text]{
+    flex:1;min-width:70px;padding:7px 10px;
+    background:var(--bg);border:1px solid var(--border);border-radius:6px;
+    color:var(--text);font-size:.85rem;font-family:var(--mono);
+  }
+  input:focus{outline:none;border-color:var(--accent1)}
+  button.btn{
+    padding:7px 14px;border:none;border-radius:6px;cursor:pointer;
+    font-size:.82rem;font-weight:600;letter-spacing:0.3px;transition:all .15s;
+    white-space:nowrap;
+  }
+  .btn-primary{background:var(--accent1);color:#000}
+  .btn-primary:hover{filter:brightness(1.15)}
+  .btn-success{background:var(--accent3);color:#000}
+  .btn-success:hover{filter:brightness(1.15)}
+  .btn-warn{background:var(--accent4);color:#000}
+  .btn-warn:hover{filter:brightness(1.15)}
+  .btn-danger{background:var(--danger);color:#fff}
+  .btn-danger:hover{filter:brightness(1.15)}
+  .btn-ghost{background:var(--border);color:var(--text)}
+  .btn-ghost:hover{background:var(--muted)}
+  .btn-purple{background:var(--accent2);color:#fff}
+  .btn-purple:hover{filter:brightness(1.15)}
+
+  /* ── CANVAS AREA ── */
+  .canvas-wrap{
+    background:var(--card);border:1px solid var(--border);border-radius:10px;
+    padding:1rem;flex:1;min-height:320px;position:relative;overflow:hidden;
+  }
+  .canvas-label{
+    font-size:.7rem;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-bottom:.5rem
+  }
+  canvas{display:block;width:100%;height:100%;border-radius:6px}
+
+  /* ── LOG ── */
+  .log-box{
+    background:var(--bg);border:1px solid var(--border);border-radius:8px;
+    padding:.75rem 1rem;font-family:var(--mono);font-size:.78rem;color:var(--accent3);
+    max-height:140px;overflow-y:auto;line-height:1.6;
+  }
+  .log-label{font-size:.7rem;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-bottom:.4rem}
+
+  /* ── ARRAY DISPLAY ── */
+  .array-strip{display:flex;gap:3px;flex-wrap:wrap;padding:.5rem 0}
+  .arr-cell{
+    min-width:34px;height:34px;display:flex;align-items:center;justify-content:center;
+    background:var(--border);border-radius:5px;font-size:.78rem;font-family:var(--mono);
+    font-weight:600;transition:all .3s;border:2px solid transparent;
+  }
+  .arr-cell.root{background:var(--accent2);color:#fff;border-color:var(--accent1)}
+  .arr-cell.highlight{background:var(--accent1);color:#000}
+
+  /* ── HASH TABLE GRID ── */
+  .ht-grid{display:flex;flex-direction:column;gap:4px}
+  .ht-row{display:flex;align-items:center;gap:6px}
+  .ht-idx{
+    min-width:28px;height:28px;background:var(--accent2);border-radius:4px;
+    display:flex;align-items:center;justify-content:center;font-size:.72rem;font-weight:700;color:#fff
+  }
+  .ht-chain{display:flex;gap:4px;flex-wrap:wrap}
+  .ht-cell{
+    padding:3px 8px;background:var(--border);border-radius:4px;
+    font-size:.72rem;font-family:var(--mono);transition:all .3s;
+  }
+  .ht-cell.new{background:var(--accent1);color:#000}
+  .ht-cell.found{background:var(--accent3);color:#000}
+  .ht-cell.collision{background:var(--accent4);color:#000}
+
+  /* ── GRAPH NODE COLORS ── */
+  .legend{display:flex;gap:.75rem;flex-wrap:wrap}
+  .legend-item{display:flex;align-items:center;gap:4px;font-size:.72rem;color:var(--muted)}
+  .legend-dot{width:10px;height:10px;border-radius:50%}
+
+  /* ── STATUS CHIPS ── */
+  .chips{display:flex;gap:.4rem;flex-wrap:wrap;margin-top:.5rem}
+  .chip{
+    padding:2px 9px;border-radius:20px;font-size:.72rem;font-weight:600;
+    background:var(--border);color:var(--text);
+  }
+  .chip.good{background:#064e3b;color:#6ee7b7}
+  .chip.bad{background:#7f1d1d;color:#fca5a5}
+  .chip.info{background:#1e3a5f;color:#93c5fd}
+
+  /* ── WASM LOADING ── */
+  #wasm-overlay{
+    position:fixed;inset:0;z-index:999;background:var(--bg);
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1rem;
+  }
+  .wasm-spinner{
+    width:48px;height:48px;border:3px solid var(--border);border-top-color:var(--accent1);
+    border-radius:50%;animation:spin 1s linear infinite;
+  }
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .wasm-text{color:var(--muted);font-size:.9rem}
+  .wasm-text span{color:var(--accent1);font-weight:700}
+
+  /* ── MOBILE ── */
+  @media(max-width:768px){
+    .main-layout{grid-template-columns:1fr}
+    .sidebar{position:static;height:auto}
+  }
+
+  /* ── SCROLLBAR STYLE ── */
+  ::-webkit-scrollbar{width:5px;height:5px}
+  ::-webkit-scrollbar-track{background:var(--bg)}
+  ::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+  ::-webkit-scrollbar-thumb:hover{background:var(--muted)}
+
+  /* ── STEP HIGHLIGHT ── */
+  .step-row{display:flex;flex-direction:column;gap:4px}
+  .step-item{
+    padding:4px 8px;border-left:2px solid var(--accent2);
+    font-size:.75rem;font-family:var(--mono);color:var(--text);
+    background:rgba(124,58,237,0.08);border-radius:0 4px 4px 0;
+  }
+  .step-item.current{border-left-color:var(--accent1);background:rgba(0,212,255,0.1);color:var(--accent1)}
+
+  select{
+    padding:7px 10px;background:var(--bg);border:1px solid var(--border);
+    border-radius:6px;color:var(--text);font-size:.85rem;cursor:pointer;
+  }
+  select:focus{outline:none;border-color:var(--accent1)}
+
+  .two-col{display:grid;grid-template-columns:1fr 1fr;gap:.75rem}
+</style>
+</head>
+<body>
+
+<!-- WASM Loading overlay -->
+<div id="wasm-overlay">
+  <div class="wasm-spinner"></div>
+  <div class="wasm-text">Loading <span>WebAssembly</span> C++ Core…</div>
+  <div class="wasm-text" style="font-size:.75rem;color:var(--muted)">Compiled with Emscripten</div>
+</div>
+
+<header>
+  <div class="logo">DS <span>Visualizer</span></div>
+  <div class="nav-tabs">
+    <button class="tab-btn active" onclick="switchTab('heap')">⬡ Binary Heap</button>
+    <button class="tab-btn" onclick="switchTab('avl')">🌲 AVL Tree</button>
+    <button class="tab-btn" onclick="switchTab('graph')">🔗 Graph</button>
+    <button class="tab-btn" onclick="switchTab('hash')">🗃️ Hash Table</button>
+  </div>
+  <div class="wasm-badge">WASM + C++</div>
+</header>
+
+<div class="main-layout">
+
+  <!-- ════ SIDEBAR ════ -->
+  <aside class="sidebar">
+
+    <!-- HEAP CONTROLS -->
+    <div id="ctrl-heap" class="ds-panel active">
+      <div class="ctrl-group">
+        <h3>Heap Type</h3>
+        <div class="ctrl-row">
+          <select id="heapType" onchange="heapSetType()">
+            <option value="1">Min-Heap</option>
+            <option value="0">Max-Heap</option>
+          </select>
+        </div>
+      </div>
+      <div class="ctrl-group">
+        <h3>Operations</h3>
+        <div class="ctrl-row">
+          <input type="number" id="heapVal" placeholder="Value" value="42"/>
+        </div>
+        <div class="ctrl-row">
+          <button class="btn btn-primary" onclick="heapInsert()">Insert</button>
+          <button class="btn btn-warn" onclick="heapExtract()">Extract Root</button>
+          <button class="btn btn-ghost" onclick="heapClear()">Clear</button>
+        </div>
+      </div>
+      <div class="ctrl-group">
+        <h3>Quick Load</h3>
+        <div class="ctrl-row">
+          <button class="btn btn-ghost" onclick="heapLoadSample()">Load Sample Data</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- AVL CONTROLS -->
+    <div id="ctrl-avl" class="ds-panel">
+      <div class="ctrl-group">
+        <h3>Insert / Delete</h3>
+        <div class="ctrl-row">
+          <input type="number" id="avlVal" placeholder="Value" value="30"/>
+        </div>
+        <div class="ctrl-row">
+          <button class="btn btn-primary" onclick="avlInsert()">Insert</button>
+          <button class="btn btn-danger" onclick="avlDelete()">Delete</button>
+          <button class="btn btn-ghost" onclick="avlClear()">Clear</button>
+        </div>
+      </div>
+      <div class="ctrl-group">
+        <h3>Quick Load</h3>
+        <div class="ctrl-row">
+          <button class="btn btn-ghost" onclick="avlLoadSample()">Rotation Demo</button>
+        </div>
+      </div>
+      <div class="ctrl-group">
+        <h3>Legend</h3>
+        <div class="legend">
+          <div class="legend-item"><div class="legend-dot" style="background:var(--accent2)"></div> Node</div>
+          <div class="legend-item"><div class="legend-dot" style="background:var(--accent1)"></div> Root</div>
+          <div class="legend-item"><div class="legend-dot" style="background:var(--danger)"></div> BF ≠ 0</div>
+          <div class="legend-item"><div class="legend-dot" style="background:var(--accent3)"></div> Balanced</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- GRAPH CONTROLS -->
+    <div id="ctrl-graph" class="ds-panel">
+      <div class="ctrl-group">
+        <h3>Setup</h3>
+        <div class="ctrl-row">
+          <input type="number" id="graphN" placeholder="Nodes" value="6" min="2" max="12"/>
+          <button class="btn btn-primary" onclick="graphInit()">Init Graph</button>
+        </div>
+      </div>
+      <div class="ctrl-group">
+        <h3>Add / Remove Edge</h3>
+        <div class="ctrl-row">
+          <input type="number" id="gU" placeholder="From" style="width:55px"/>
+          <input type="number" id="gV" placeholder="To" style="width:55px"/>
+          <input type="number" id="gW" placeholder="Wt" value="1" style="width:50px"/>
+        </div>
+        <div class="ctrl-row">
+          <button class="btn btn-success" onclick="graphAddEdge()">Add Edge</button>
+          <button class="btn btn-danger" onclick="graphRemoveEdge()">Remove</button>
+        </div>
+      </div>
+      <div class="ctrl-group">
+        <h3>Algorithms</h3>
+        <div class="ctrl-row">
+          <input type="number" id="gStart" placeholder="Start" value="0" style="width:70px"/>
+        </div>
+        <div class="ctrl-row">
+          <button class="btn btn-primary" onclick="graphBFS()">BFS</button>
+          <button class="btn btn-purple" onclick="graphDFS()">DFS</button>
+        </div>
+        <div class="ctrl-row">
+          <button class="btn btn-warn" onclick="graphDijkstra()">Dijkstra</button>
+          <button class="btn btn-success" onclick="graphPrim()">Prim MST</button>
+        </div>
+        <div class="ctrl-row">
+          <button class="btn btn-ghost" onclick="graphLoadSample()">Sample Graph</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- HASH CONTROLS -->
+    <div id="ctrl-hash" class="ds-panel">
+      <div class="ctrl-group">
+        <h3>Operations</h3>
+        <div class="ctrl-row">
+          <input type="number" id="htKey" placeholder="Key" value="25"/>
+          <input type="text"   id="htVal" placeholder="Value" value="hello" style="width:70px"/>
+        </div>
+        <div class="ctrl-row">
+          <button class="btn btn-primary" onclick="htInsert()">Insert</button>
+          <button class="btn btn-success" onclick="htSearch()">Search</button>
+          <button class="btn btn-danger"  onclick="htDelete()">Delete</button>
+        </div>
+        <div class="ctrl-row">
+          <button class="btn btn-ghost" onclick="htClear()">Clear Table</button>
+        </div>
+      </div>
+      <div class="ctrl-group">
+        <h3>Quick Load</h3>
+        <button class="btn btn-ghost" onclick="htLoadSample()">Load Sample Keys</button>
+      </div>
+      <div class="ctrl-group">
+        <h3>Hash Function</h3>
+        <div class="log-box" style="max-height:60px">key % 11 (chaining)</div>
+      </div>
+    </div>
+
+  </aside>
+
+  <!-- ════ CONTENT ════ -->
+  <main class="content">
+
+    <!-- ── HEAP PANEL ── -->
+    <div id="panel-heap" class="ds-panel active">
+      <div class="canvas-wrap" style="min-height:340px">
+        <div class="canvas-label">Tree Visualization</div>
+        <canvas id="heapCanvas"></canvas>
+      </div>
+      <div class="ctrl-group">
+        <div class="canvas-label">Array Representation</div>
+        <div class="array-strip" id="heapArray">—</div>
+      </div>
+      <div>
+        <div class="log-label">Operation Log</div>
+        <div class="log-box" id="heapLog">Ready. Insert values to begin.</div>
+      </div>
+    </div>
+
+    <!-- ── AVL PANEL ── -->
+    <div id="panel-avl" class="ds-panel">
+      <div class="canvas-wrap" style="min-height:360px">
+        <div class="canvas-label">AVL Tree — Height &amp; Balance Factor</div>
+        <canvas id="avlCanvas"></canvas>
+      </div>
+      <div>
+        <div class="log-label">Rotation Log</div>
+        <div class="log-box" id="avlLog">Insert nodes to watch rotations happen.</div>
+      </div>
+    </div>
+
+    <!-- ── GRAPH PANEL ── -->
+    <div id="panel-graph" class="ds-panel">
+      <div class="canvas-wrap" style="min-height:360px">
+        <div class="canvas-label">Graph — Adjacency List with Weights</div>
+        <canvas id="graphCanvas"></canvas>
+      </div>
+      <div class="two-col">
+        <div>
+          <div class="log-label">Algorithm Steps</div>
+          <div class="log-box" id="graphLog">Init a graph and run an algorithm.</div>
+        </div>
+        <div>
+          <div class="log-label">Distances (Dijkstra)</div>
+          <div id="distPanel" class="log-box">—</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── HASH PANEL ── -->
+    <div id="panel-hash" class="ds-panel">
+      <div class="canvas-wrap" style="min-height:360px">
+        <div class="canvas-label">Hash Table — Chaining (Size 11)</div>
+        <div class="ht-grid" id="htGrid"></div>
+      </div>
+      <div>
+        <div class="log-label">Operation Log</div>
+        <div class="log-box" id="htLog">Insert key-value pairs to begin.</div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<script>
+// ══════════════════════════════════════════════════════════════
+//  WASM BRIDGE — Fallback JS if WASM not available
+// ══════════════════════════════════════════════════════════════
+let WC = null; // WebAssembly C calls
+
+// ─── JS Fallback implementations (used until WASM loads) ────
+const jsImpl = (() => {
+  // HEAP
+  let heap = [], isMin = true;
+  function heapCmp(a,b){ return isMin ? a < b : a > b; }
+  function heapUp(h,i){ while(i>0){let p=(i-1)>>1;if(heapCmp(h[i],h[p])){[h[i],h[p]]=[h[p],h[i]];i=p;}else break;} }
+  function heapDown(h,i,n){ while(true){let t=i,l=2*i+1,r=2*i+2;if(l<n&&heapCmp(h[l],h[t]))t=l;if(r<n&&heapCmp(h[r],h[t]))t=r;if(t!==i){[h[i],h[t]]=[h[t],h[i]];i=t;}else break;} }
+
+  // AVL
+  function mkNode(k){return{key:k,height:1,bf:0,left:null,right:null};}
+  function h(n){return n?n.height:0;}
+  function upd(n){if(!n)return;n.height=1+Math.max(h(n.left),h(n.right));n.bf=h(n.left)-h(n.right);}
+  let rotLog="";
+  function rRight(y){rotLog+="LL Rotation at "+y.key+"; ";let x=y.left,T=x.right;x.right=y;y.left=T;upd(y);upd(x);return x;}
+  function rLeft(x){rotLog+="RR Rotation at "+x.key+"; ";let y=x.right,T=y.left;y.left=x;x.right=T;upd(x);upd(y);return y;}
+  function bal(n){upd(n);if(n.bf>1){if(n.left.bf<0){rotLog+="LR Case; ";n.left=rLeft(n.left);}return rRight(n);}if(n.bf<-1){if(n.right.bf>0){rotLog+="RL Case; ";n.right=rRight(n.right);}return rLeft(n);}return n;}
+  function ins(n,k){if(!n)return mkNode(k);if(k<n.key)n.left=ins(n.left,k);else if(k>n.key)n.right=ins(n.right,k);else return n;return bal(n);}
+  function minN(n){while(n.left)n=n.left;return n;}
+  function del(n,k){if(!n)return n;if(k<n.key)n.left=del(n.left,k);else if(k>n.key)n.right=del(n.right,k);else{if(!n.left||!n.right){return n.left||n.right||null;}let mn=minN(n.right);n.key=mn.key;n.right=del(n.right,mn.key);}return bal(n);}
+
+  // Graph
+  const MAXN=15;let adj=Array.from({length:MAXN},()=>Array(MAXN).fill(0)),gN=0;
+  function gJSON(){let nodes=[...Array(gN).keys()];let edges=[];for(let i=0;i<gN;i++)for(let j=i;j<gN;j++)if(adj[i][j])edges.push({u:i,v:j,w:adj[i][j]});return{nodes,edges};}
+
+  // Hash
+  const HT=11;let ht=Array.from({length:HT},()=>[]);
+  function hf(k){return((k%HT)+HT)%HT;}
+  function htJSON(){return{size:HT,buckets:ht.map(b=>b.map(p=>({key:p[0],val:p[1]})))};}
+
+  return {
+    // HEAP
+    heap_setType(minH){isMin=!!minH;heap=[];return JSON.stringify({type:isMin?"min":"max",heap:[]});},
+    heap_insert(v){heap.push(v);heapUp(heap,heap.length-1);return JSON.stringify({type:isMin?"min":"max",heap:[...heap]});},
+    heap_extractRoot(){if(!heap.length)return JSON.stringify({error:"Empty"});let r=heap[0];heap[0]=heap.pop();if(heap.length)heapDown(heap,0,heap.length);return JSON.stringify({type:isMin?"min":"max",extracted:r,heap:[...heap]});},
+    heap_getState(){return JSON.stringify({type:isMin?"min":"max",heap:[...heap]});},
+    // AVL
+    _avlRoot:null,
+    avl_insert(k){rotLog="Inserting "+k+"; ";this._avlRoot=ins(this._avlRoot,k);return JSON.stringify({log:rotLog,tree:this._avlRoot});},
+    avl_delete(k){rotLog="Deleting "+k+"; ";this._avlRoot=del(this._avlRoot,k);return JSON.stringify({log:rotLog,tree:this._avlRoot});},
+    avl_getState(){return JSON.stringify({log:"",tree:this._avlRoot});},
+    avl_clear(){this._avlRoot=null;},
+    // GRAPH
+    graph_init(n){gN=n;adj=Array.from({length:MAXN},()=>Array(MAXN).fill(0));return JSON.stringify(gJSON());},
+    graph_addEdge(u,v,w){adj[u][v]=w;adj[v][u]=w;return JSON.stringify(gJSON());},
+    graph_removeEdge(u,v){adj[u][v]=0;adj[v][u]=0;return JSON.stringify(gJSON());},
+    graph_bfs(s){let vis=Array(gN).fill(false),order=[],q=[s];vis[s]=true;while(q.length){let u=q.shift();order.push(u);for(let v=0;v<gN;v++)if(adj[u][v]&&!vis[v]){vis[v]=true;q.push(v);}}return JSON.stringify({algorithm:"BFS",order});},
+    graph_dfs(s){let vis=Array(gN).fill(false),order=[],st=[s];while(st.length){let u=st.pop();if(vis[u])continue;vis[u]=true;order.push(u);for(let v=gN-1;v>=0;v--)if(adj[u][v]&&!vis[v])st.push(v);}return JSON.stringify({algorithm:"DFS",order});},
+    graph_dijkstra(s){let dist=Array(gN).fill(Infinity);dist[s]=0;let vis=Array(gN).fill(false);let steps="";for(let i=0;i<gN;i++){let u=-1;for(let j=0;j<gN;j++)if(!vis[j]&&(u===-1||dist[j]<dist[u]))u=j;if(u===-1||dist[u]===Infinity)break;vis[u]=true;steps+="Visit "+u+"(d="+dist[u]+"); ";for(let v=0;v<gN;v++)if(adj[u][v]&&dist[u]+adj[u][v]<dist[v]){dist[v]=dist[u]+adj[u][v];steps+="Relax "+u+"->"+v+"="+dist[v]+"; ";}}return JSON.stringify({algorithm:"Dijkstra",start:s,dist:dist.map(d=>d===Infinity?-1:d),steps});},
+    graph_prim(){let key=Array(gN).fill(Infinity),par=Array(gN).fill(-1),inMST=Array(gN).fill(false);key[0]=0;let steps="",mst=[];for(let i=0;i<gN;i++){let u=-1;for(let j=0;j<gN;j++)if(!inMST[j]&&(u===-1||key[j]<key[u]))u=j;inMST[u]=true;steps+="Add node "+u+"; ";if(par[u]!==-1)mst.push({u:par[u],v:u,w:adj[par[u]][u]});for(let v=0;v<gN;v++)if(adj[u][v]&&!inMST[v]&&adj[u][v]<key[v]){key[v]=adj[u][v];par[v]=u;steps+="Update "+v+" key="+key[v]+"; ";}}return JSON.stringify({algorithm:"Prim",mst,steps});},
+    // HASH
+    ht_insert(k,v){let i=hf(k);let found=ht[i].find(p=>p[0]===k);if(found)found[1]=v;else ht[i].push([k,v]);return JSON.stringify({inserted:k,bucket:i,table:htJSON()});},
+    ht_search(k){let i=hf(k);let found=ht[i].find(p=>p[0]===k);return JSON.stringify({found:!!found,key:k,val:found?found[1]:null,bucket:i,table:htJSON()});},
+    ht_delete(k){let i=hf(k);ht[i]=ht[i].filter(p=>p[0]!==k);return JSON.stringify({deleted:k,bucket:i,table:htJSON()});},
+    ht_getState(){return JSON.stringify(htJSON());},
+    ht_clear(){ht=Array.from({length:HT},()=>[]);}
+  };
+})();
+
+// ──────────────────────────────────────────────────────────────
+//  Try to load WASM; fall back to JS
+// ──────────────────────────────────────────────────────────────
+let DS = jsImpl; // default to JS implementation
+
+function tryLoadWASM() {
+  // Attempt to load the compiled WASM module
+  if (typeof Module !== 'undefined' && Module.cwrap) {
+    try {
+      WC = {
+        heap_setType: Module.cwrap('heap_setType','string',['number']),
+        heap_insert:  Module.cwrap('heap_insert','string',['number']),
+        heap_extractRoot: Module.cwrap('heap_extractRoot','string',[]),
+        heap_getState: Module.cwrap('heap_getState','string',[]),
+        avl_insert:   Module.cwrap('avl_insert','string',['number']),
+        avl_delete:   Module.cwrap('avl_delete','string',['number']),
+        avl_getState: Module.cwrap('avl_getState','string',[]),
+        avl_clear:    Module.cwrap('avl_clear',null,[]),
+        graph_init:   Module.cwrap('graph_init','string',['number']),
+        graph_addEdge: Module.cwrap('graph_addEdge','string',['number','number','number']),
+        graph_removeEdge: Module.cwrap('graph_removeEdge','string',['number','number']),
+        graph_bfs:    Module.cwrap('graph_bfs','string',['number']),
+        graph_dfs:    Module.cwrap('graph_dfs','string',['number']),
+        graph_dijkstra: Module.cwrap('graph_dijkstra','string',['number']),
+        graph_prim:   Module.cwrap('graph_prim','string',[]),
+        ht_insert:    Module.cwrap('ht_insert','string',['number','string']),
+        ht_search:    Module.cwrap('ht_search','string',['number']),
+        ht_delete:    Module.cwrap('ht_delete','string',['number']),
+        ht_getState:  Module.cwrap('ht_getState','string',[]),
+        ht_clear:     Module.cwrap('ht_clear',null,[]),
+      };
+      DS = WC;
+      document.querySelector('.wasm-badge').textContent = '✓ WASM ACTIVE';
+      document.querySelector('.wasm-badge').style.background = 'rgba(16,185,129,0.2)';
+      document.querySelector('.wasm-badge').style.borderColor = 'var(--accent3)';
+      document.querySelector('.wasm-badge').style.color = 'var(--accent3)';
+    } catch(e) { console.warn('WASM cwrap failed, using JS fallback', e); }
+  }
+}
+
+// Helper: call DS function (works for both WASM and JS)
+function dsCall(fn, ...args) {
+  try {
+    const result = DS[fn](...args);
+    if (typeof result === 'string') return JSON.parse(result);
+    return result;
+  } catch(e) {
+    console.error('DS call failed:', fn, e);
+    return {};
+  }
+}
+
+// ══════════════════════════════════════════════════════════════
+//  TAB SWITCHING
+// ══════════════════════════════════════════════════════════════
+function switchTab(name) {
+  document.querySelectorAll('.tab-btn').forEach((b,i) => {
+    const tabs = ['heap','avl','graph','hash'];
+    b.classList.toggle('active', tabs[i] === name);
+  });
+  document.querySelectorAll('.ds-panel').forEach(p => p.classList.remove('active'));
+  document.getElementById('ctrl-'+name).classList.add('active');
+  document.getElementById('panel-'+name).classList.add('active');
+  // Re-draw current state
+  setTimeout(() => {
+    if (name==='heap') { const s=dsCall('heap_getState'); drawHeap(s); }
+    if (name==='avl')  { const s=dsCall('avl_getState'); drawAVL(s); }
+    if (name==='graph') drawGraph(currentGraph);
+    if (name==='hash') { const s=dsCall('ht_getState'); renderHT(s); }
+  }, 50);
+}
+
+// ══════════════════════════════════════════════════════════════
+//  CANVAS UTILS
+// ══════════════════════════════════════════════════════════════
+function setupCanvas(id) {
+  const canvas = document.getElementById(id);
+  const wrap   = canvas.parentElement;
+  canvas.width  = wrap.clientWidth - 32;
+  canvas.height = wrap.clientHeight - 40;
+  return { canvas, ctx: canvas.getContext('2d') };
+}
+
+function clearCtx(ctx, canvas) {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+}
+
+// ══════════════════════════════════════════════════════════════
+//  BINARY HEAP
+// ══════════════════════════════════════════════════════════════
+function heapSetType() {
+  const v = parseInt(document.getElementById('heapType').value);
+  dsCall('heap_setType', v);
+  drawHeap({ type: v?'min':'max', heap: [] });
+  logMsg('heapLog', `Switched to ${v?'Min':'Max'}-Heap. Heap cleared.`);
+  document.getElementById('heapArray').innerHTML = '—';
+}
+
+function heapInsert() {
+  const v = parseInt(document.getElementById('heapVal').value);
+  if (isNaN(v)) return;
+  const s = dsCall('heap_insert', v);
+  drawHeap(s);
+  logMsg('heapLog', `Inserted ${v} → HeapifyUp → Heap size: ${s.heap.length}`);
+  renderHeapArray(s.heap);
+}
+
+function heapExtract() {
+  const s = dsCall('heap_extractRoot');
+  if (s.error) { logMsg('heapLog', '⚠ ' + s.error); return; }
+  drawHeap(s);
+  logMsg('heapLog', `Extracted root: ${s.extracted} → HeapifyDown → Heap size: ${s.heap.length}`);
+  renderHeapArray(s.heap);
+}
+
+function heapClear() {
+  DS.heap_setType ? dsCall('heap_setType', parseInt(document.getElementById('heapType').value)) : DS.heap_setType(1);
+  const {canvas,ctx}=setupCanvas('heapCanvas');
+  clearCtx(ctx,canvas);
+  document.getElementById('heapArray').innerHTML='—';
+  logMsg('heapLog','Heap cleared.');
+}
+
+function heapLoadSample() {
+  heapClear();
+  [15,10,20,5,8,18,25,3,7].forEach(v => {
+    const s = dsCall('heap_insert', v);
+    drawHeap(s);
+    renderHeapArray(s.heap);
+  });
+  logMsg('heapLog','Loaded sample: [15,10,20,5,8,18,25,3,7]');
+}
+
+function renderHeapArray(arr) {
+  const el = document.getElementById('heapArray');
+  el.innerHTML = arr.map((v,i) => {
+    let cls = i===0 ? 'arr-cell root' : 'arr-cell';
+    return `<div class="${cls}" title="Index ${i}">${v}</div>`;
+  }).join('') + (arr.length?`<span style="color:var(--muted);font-size:.7rem;margin-left:.5rem;align-self:center">[${arr.length} elements]</span>`:'');
+}
+
+function drawHeap(state) {
+  if (!state || !state.heap) return;
+  const {canvas, ctx} = setupCanvas('heapCanvas');
+  clearCtx(ctx, canvas);
+  const arr = state.heap;
+  if (!arr.length) { ctx.fillStyle='#64748b'; ctx.font='14px var(--font)'; ctx.textAlign='center'; ctx.fillText('Heap is empty',canvas.width/2,canvas.height/2); return; }
+
+  const R = 22, levelH = 60;
+  const totalLevels = Math.floor(Math.log2(arr.length)) + 1;
+  const startY = 40;
+
+  function drawNode(i, x, y, spread) {
+    if (i >= arr.length) return;
+    const l = 2*i+1, r = 2*i+2;
+    ctx.strokeStyle = '#1e2d45'; ctx.lineWidth = 1.5;
+    if (l < arr.length) { ctx.beginPath(); ctx.moveTo(x,y); ctx.lineTo(x-spread,y+levelH); ctx.stroke(); }
+    if (r < arr.length) { ctx.beginPath(); ctx.moveTo(x,y); ctx.lineTo(x+spread,y+levelH); ctx.stroke(); }
+
+    const grad = ctx.createRadialGradient(x,y,2,x,y,R);
+    if (i===0) { grad.addColorStop(0,'#00d4ff'); grad.addColorStop(1,'#0066aa'); }
+    else       { grad.addColorStop(0,'#7c3aed'); grad.addColorStop(1,'#4c1d95'); }
+    ctx.fillStyle = grad;
+    ctx.beginPath(); ctx.arc(x,y,R,0,Math.PI*2); ctx.fill();
+    ctx.strokeStyle = i===0?'#00d4ff':'#6d28d9'; ctx.lineWidth=2;
+    ctx.beginPath(); ctx.arc(x,y,R,0,Math.PI*2); ctx.stroke();
+
+    ctx.fillStyle='#fff'; ctx.font='bold 12px var(--mono)'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText(arr[i], x, y);
+    ctx.fillStyle='#64748b'; ctx.font='9px var(--mono)';
+    ctx.fillText(i, x, y+R+10);
+
+    if (l < arr.length) drawNode(l, x-spread, y+levelH, spread/2);
+    if (r < arr.length) drawNode(r, x+spread, y+levelH, spread/2);
+  }
+  const initSpread = Math.min(canvas.width/4, 120);
+  drawNode(0, canvas.width/2, startY, initSpread);
+  renderHeapArray(arr);
+}
+
+// ══════════════════════════════════════════════════════════════
+//  AVL TREE
+// ══════════════════════════════════════════════════════════════
+function avlInsert() {
+  const v = parseInt(document.getElementById('avlVal').value);
+  if (isNaN(v)) return;
+  const s = dsCall('avl_insert', v);
+  drawAVL(s);
+  logMsg('avlLog', s.log || `Inserted ${v}`);
+}
+
+function avlDelete() {
+  const v = parseInt(document.getElementById('avlVal').value);
+  if (isNaN(v)) return;
+  const s = dsCall('avl_delete', v);
+  drawAVL(s);
+  logMsg('avlLog', s.log || `Deleted ${v}`);
+}
+
+function avlClear() {
+  if (DS.avl_clear) DS.avl_clear();
+  else dsCall('avl_clear');
+  const {canvas,ctx}=setupCanvas('avlCanvas');
+  clearCtx(ctx,canvas);
+  logMsg('avlLog','Tree cleared.');
+}
+
+function avlLoadSample() {
+  avlClear();
+  // These values trigger LL, RR, LR, RL rotations
+  [10,20,30,40,50,25].forEach(v => {
+    const s = dsCall('avl_insert', v);
+    drawAVL(s);
+    if(s.log && s.log.includes('Rotation')) logMsg('avlLog', s.log);
+  });
+  logMsg('avlLog','Sample loaded: triggers LL, RR rotations.');
+}
+
+function drawAVL(state) {
+  if (!state) return;
+  const {canvas,ctx}=setupCanvas('avlCanvas');
+  clearCtx(ctx,canvas);
+  const root = state.tree;
+  if (!root) { ctx.fillStyle='#64748b'; ctx.font='14px var(--font)'; ctx.textAlign='center'; ctx.fillText('AVL Tree is empty',canvas.width/2,canvas.height/2); return; }
+
+  const R=24, levelH=65;
+  function draw(node, x, y, spread, isRoot) {
+    if (!node) return;
+    ctx.strokeStyle='#1e2d45'; ctx.lineWidth=1.5;
+    if (node.left)  { ctx.beginPath(); ctx.moveTo(x,y); ctx.lineTo(x-spread,y+levelH); ctx.stroke(); }
+    if (node.right) { ctx.beginPath(); ctx.moveTo(x,y); ctx.lineTo(x+spread,y+levelH); ctx.stroke(); }
+
+    const bf = node.bf;
+    let color1, color2;
+    if (isRoot)          { color1='#00d4ff'; color2='#0066aa'; }
+    else if (bf===0)     { color1='#10b981'; color2='#064e3b'; }
+    else if (Math.abs(bf)===1){ color1='#7c3aed'; color2='#4c1d95'; }
+    else                 { color1='#ef4444'; color2='#7f1d1d'; }
+
+    const g=ctx.createRadialGradient(x,y,2,x,y,R);
+    g.addColorStop(0,color1); g.addColorStop(1,color2);
+    ctx.fillStyle=g;
+    ctx.beginPath(); ctx.arc(x,y,R,0,Math.PI*2); ctx.fill();
+    ctx.strokeStyle=color1; ctx.lineWidth=2;
+    ctx.beginPath(); ctx.arc(x,y,R,0,Math.PI*2); ctx.stroke();
+
+    ctx.fillStyle='#fff'; ctx.font='bold 12px var(--mono)'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText(node.key, x, y);
+    // BF label
+    ctx.fillStyle= bf===0?'#10b981': Math.abs(bf)>1?'#ef4444':'#f59e0b';
+    ctx.font='9px var(--mono)';
+    ctx.fillText(`h=${node.height} bf=${bf}`, x, y+R+12);
+
+    if (node.left)  draw(node.left,  x-spread, y+levelH, spread*0.55, false);
+    if (node.right) draw(node.right, x+spread, y+levelH, spread*0.55, false);
+  }
+  draw(root, canvas.width/2, 40, Math.min(canvas.width/4, 130), true);
+}
+
+// ══════════════════════════════════════════════════════════════
+//  GRAPH
+// ══════════════════════════════════════════════════════════════
+let currentGraph = {nodes:[], edges:[]};
+let graphNodePos = [];
+let highlightedNodes = [], highlightedEdges = [], animStep = 0, animTimer = null;
+
+function graphInit() {
+  const n = parseInt(document.getElementById('graphN').value) || 6;
+  currentGraph = dsCall('graph_init', n);
+  computeNodePositions(n);
+  drawGraph(currentGraph);
+  logMsg('graphLog', `Graph initialized with ${n} nodes.`);
+  document.getElementById('distPanel').innerHTML='—';
+}
+
+function computeNodePositions(n) {
+  const {canvas} = setupCanvas('graphCanvas');
+  const cx = canvas.width/2, cy = canvas.height/2;
+  const r  = Math.min(cx, cy) * 0.75;
+  graphNodePos = Array.from({length:n}, (_,i) => {
+    const angle = (2*Math.PI*i/n) - Math.PI/2;
+    return { x: cx + r*Math.cos(angle), y: cy + r*Math.sin(angle) };
+  });
+}
+
+function graphAddEdge() {
+  const u=parseInt(document.getElementById('gU').value),
+        v=parseInt(document.getElementById('gV').value),
+        w=parseInt(document.getElementById('gW').value)||1;
+  if (isNaN(u)||isNaN(v)) return;
+  currentGraph = dsCall('graph_addEdge', u, v, w);
+  drawGraph(currentGraph);
+  logMsg('graphLog', `Edge added: ${u} ↔ ${v} (weight: ${w})`);
+}
+
+function graphRemoveEdge() {
+  const u=parseInt(document.getElementById('gU').value),
+        v=parseInt(document.getElementById('gV').value);
+  currentGraph = dsCall('graph_removeEdge', u, v);
+  drawGraph(currentGraph);
+  logMsg('graphLog', `Edge removed: ${u} ↔ ${v}`);
+}
+
+function graphBFS() {
+  const s=parseInt(document.getElementById('gStart').value)||0;
+  const res = dsCall('graph_bfs', s);
+  logMsg('graphLog', `BFS from ${s}: ${res.order.join(' → ')}`);
+  animateTraversal(res.order, 'BFS');
+}
+
+function graphDFS() {
+  const s=parseInt(document.getElementById('gStart').value)||0;
+  const res = dsCall('graph_dfs', s);
+  logMsg('graphLog', `DFS from ${s}: ${res.order.join(' → ')}`);
+  animateTraversal(res.order, 'DFS');
+}
+
+function graphDijkstra() {
+  const s=parseInt(document.getElementById('gStart').value)||0;
+  const res = dsCall('graph_dijkstra', s);
+  logMsg('graphLog', res.steps || 'Dijkstra complete');
+  // Show distances
+  const panel = document.getElementById('distPanel');
+  panel.innerHTML = res.dist.map((d,i)=>`Node ${i}: ${d===-1?'∞':d}`).join('<br>');
+  animateTraversal(res.dist.map((_,i)=>i).filter(i=>res.dist[i]!==-1), 'Dijkstra');
+}
+
+function graphPrim() {
+  const res = dsCall('graph_prim');
+  logMsg('graphLog', res.steps || 'Prim MST complete');
+  // Highlight MST edges
+  highlightedEdges = res.mst || [];
+  drawGraph(currentGraph, [], highlightedEdges);
+}
+
+function graphLoadSample() {
+  document.getElementById('graphN').value = 6;
+  graphInit();
+  const edges = [[0,1,4],[0,2,2],[1,2,1],[1,3,5],[2,4,10],[3,4,2],[3,5,6],[4,5,3]];
+  edges.forEach(([u,v,w]) => {
+    document.getElementById('gU').value=u;
+    document.getElementById('gV').value=v;
+    document.getElementById('gW').value=w;
+    graphAddEdge();
+  });
+  logMsg('graphLog','Sample weighted graph loaded. Try BFS, DFS, Dijkstra, or Prim!');
+}
+
+function animateTraversal(order, label) {
+  if (animTimer) clearInterval(animTimer);
+  highlightedNodes = [];
+  let i = 0;
+  animTimer = setInterval(() => {
+    if (i >= order.length) { clearInterval(animTimer); return; }
+    highlightedNodes.push(order[i]);
+    drawGraph(currentGraph, highlightedNodes, []);
+    i++;
+  }, 400);
+}
+
+function drawGraph(g, hlNodes=[], hlEdges=[]) {
+  if (!g || !g.nodes) return;
+  const {canvas,ctx}=setupCanvas('graphCanvas');
+  clearCtx(ctx,canvas);
+  if (!graphNodePos.length || graphNodePos.length !== g.nodes.length) computeNodePositions(g.nodes.length);
+
+  const R = 22;
+
+  // Draw edges
+  g.edges.forEach(e => {
+    const p1 = graphNodePos[e.u], p2 = graphNodePos[e.v];
+    if (!p1||!p2) return;
+    const isMST = hlEdges.some(h=>h.u===e.u&&h.v===e.v);
+    ctx.strokeStyle = isMST ? '#10b981' : '#1e2d45';
+    ctx.lineWidth   = isMST ? 3 : 1.5;
+    ctx.beginPath(); ctx.moveTo(p1.x,p1.y); ctx.lineTo(p2.x,p2.y); ctx.stroke();
+    // Weight label
+    const mx=(p1.x+p2.x)/2, my=(p1.y+p2.y)/2;
+    ctx.fillStyle='#f59e0b'; ctx.font='bold 10px var(--mono)'; ctx.textAlign='center';
+    ctx.fillText(e.w, mx, my-5);
+  });
+
+  // Draw nodes
+  g.nodes.forEach((n,i) => {
+    const pos = graphNodePos[i]; if (!pos) return;
+    const isHL = hlNodes.includes(i);
+    const isLast = hlNodes.length > 0 && hlNodes[hlNodes.length-1] === i;
+
+    const g2 = ctx.createRadialGradient(pos.x,pos.y,2,pos.x,pos.y,R);
+    if (isLast)     { g2.addColorStop(0,'#00d4ff'); g2.addColorStop(1,'#006699'); }
+    else if (isHL)  { g2.addColorStop(0,'#10b981'); g2.addColorStop(1,'#064e3b'); }
+    else            { g2.addColorStop(0,'#7c3aed'); g2.addColorStop(1,'#4c1d95'); }
+    ctx.fillStyle=g2;
+    ctx.beginPath(); ctx.arc(pos.x,pos.y,R,0,Math.PI*2); ctx.fill();
+    ctx.strokeStyle = isLast?'#00d4ff': isHL?'#10b981':'#6d28d9';
+    ctx.lineWidth=2; ctx.beginPath(); ctx.arc(pos.x,pos.y,R,0,Math.PI*2); ctx.stroke();
+
+    ctx.fillStyle='#fff'; ctx.font='bold 13px var(--mono)'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText(n, pos.x, pos.y);
+  });
+}
+
+// ══════════════════════════════════════════════════════════════
+//  HASH TABLE
+// ══════════════════════════════════════════════════════════════
+let lastHTAction = { type: null, bucket: -1, key: -1 };
+
+function htInsert() {
+  const k=parseInt(document.getElementById('htKey').value);
+  const v=document.getElementById('htVal').value||'?';
+  if (isNaN(k)) return;
+  const s = dsCall('ht_insert', k, v);
+  lastHTAction = { type:'insert', bucket: s.bucket, key: k };
+  renderHT(s.table);
+  logMsg('htLog', `Inserted key=${k} → bucket[${s.bucket}] (${k} % 11 = ${s.bucket})`);
+}
+
+function htSearch() {
+  const k=parseInt(document.getElementById('htKey').value);
+  if (isNaN(k)) return;
+  const s = dsCall('ht_search', k);
+  lastHTAction = { type: s.found?'found':'notfound', bucket: s.bucket, key: k };
+  renderHT(s.table);
+  if (s.found) logMsg('htLog', `✓ Found key=${k} → val="${s.val}" in bucket[${s.bucket}]`);
+  else logMsg('htLog', `✗ Key=${k} not found. Searched bucket[${s.bucket}]`);
+}
+
+function htDelete() {
+  const k=parseInt(document.getElementById('htKey').value);
+  if (isNaN(k)) return;
+  const s = dsCall('ht_delete', k);
+  lastHTAction = { type:'delete', bucket: s.bucket, key: k };
+  renderHT(s.table);
+  logMsg('htLog', `Deleted key=${k} from bucket[${s.bucket}]`);
+}
+
+function htClear() {
+  if (DS.ht_clear) DS.ht_clear();
+  lastHTAction = { type:null, bucket:-1, key:-1 };
+  const s = dsCall('ht_getState');
+  renderHT(s);
+  logMsg('htLog','Hash table cleared.');
+}
+
+function htLoadSample() {
+  htClear();
+  [[22,'apple'],[33,'banana'],[11,'cherry'],[44,'date'],[55,'elderberry'],[66,'fig'],[5,'grape']].forEach(([k,v]) => {
+    document.getElementById('htKey').value=k;
+    document.getElementById('htVal').value=v;
+    htInsert();
+  });
+  logMsg('htLog','Sample data loaded. Notice collisions in buckets!');
+}
+
+function renderHT(table) {
+  if (!table || !table.buckets) return;
+  const el = document.getElementById('htGrid');
+  el.innerHTML = table.buckets.map((chain, i) => {
+    const isActive = lastHTAction.bucket === i;
+    const cells = chain.length
+      ? chain.map(p => {
+          let cls='ht-cell';
+          if (isActive && p.key === lastHTAction.key) {
+            cls += (lastHTAction.type==='insert' ? ' new' : lastHTAction.type==='found' ? ' found' : '');
+          } else if (isActive && chain.length > 1) {
+            cls += ' collision';
+          }
+          return `<div class="${cls}" title="key=${p.key}">${p.key}:${p.val}</div>`;
+        }).join('')
+      : '<span style="color:var(--muted);font-size:.7rem">empty</span>';
+    const collision = chain.length > 1 ? ' <span style="color:var(--accent4);font-size:.65rem">⚡COLLISION</span>' : '';
+    return `<div class="ht-row"><div class="ht-idx">${i}</div><div class="ht-chain">${cells}</div>${collision}</div>`;
+  }).join('');
+}
+
+// ══════════════════════════════════════════════════════════════
+//  UTILITY
+// ══════════════════════════════════════════════════════════════
+function logMsg(id, msg) {
+  const el = document.getElementById(id);
+  const ts = new Date().toLocaleTimeString('en',{hour12:false,hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  el.innerHTML += `\n[${ts}] ${msg}`;
+  el.scrollTop = el.scrollHeight;
+}
+
+// ══════════════════════════════════════════════════════════════
+//  INIT
+// ══════════════════════════════════════════════════════════════
+window.addEventListener('load', () => {
+  // Try WASM after short delay (gives time for Module to load if included)
+  setTimeout(() => {
+    tryLoadWASM();
+    document.getElementById('wasm-overlay').style.display='none';
+    // Initialize views
+    const heapS = dsCall('heap_getState');
+    drawHeap(heapS);
+    const avlS = dsCall('avl_getState');
+    drawAVL(avlS);
+    graphInit();
+    const htS = dsCall('ht_getState');
+    renderHT(htS);
+  }, 600);
+
+  // Resize handler
+  window.addEventListener('resize', () => {
+    if (document.getElementById('panel-heap').classList.contains('active')) drawHeap(dsCall('heap_getState'));
+    if (document.getElementById('panel-avl').classList.contains('active'))  drawAVL(dsCall('avl_getState'));
+    if (document.getElementById('panel-graph').classList.contains('active')) drawGraph(currentGraph);
+  });
+});
+</script>
+
+<!-- 
+  ══════════════════════════════════════════════════════════════
+  TO ENABLE REAL WASM:
+  1. Compile:  emcc cpp/ds_core.cpp -o ds_core.js \
+               -s EXPORTED_FUNCTIONS="['_heap_setType','_heap_insert','_heap_extractRoot','_heap_getState','_avl_insert','_avl_delete','_avl_getState','_avl_clear','_graph_init','_graph_addEdge','_graph_removeEdge','_graph_bfs','_graph_dfs','_graph_dijkstra','_graph_prim','_ht_insert','_ht_search','_ht_delete','_ht_getState','_ht_clear']" \
+               -s EXPORTED_RUNTIME_METHODS="['cwrap']" \
+               -s MODULARIZE=0 -O3
+  2. Add below script tag before </body>:
+     <script src="ds_core.js"></script>
+  3. The badge will turn green showing WASM is active!
+  ══════════════════════════════════════════════════════════════
+-->
+</body>
+</html>
